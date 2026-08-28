@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QRadioButton, QButtonGroup,
     QFileDialog, QListWidget, QProgressBar, QTextEdit, QGroupBox,
-    QSpinBox, QMessageBox, QCheckBox, QMenuBar, QMenu
+    QSpinBox, QMessageBox, QCheckBox, QMenuBar, QMenu, QComboBox
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction
@@ -37,7 +37,7 @@ class WorkerThread(QThread):
     def __init__(self, pdf_paths, output_dir, enable_left, left_text, 
                  enable_bottom_left, bottom_left_text,
                  enable_right, right_mode, delimiter, block_idx, custom_text, 
-                 enable_page_nums):
+                 enable_page_nums, page_num_pos):
         super().__init__()
         self.pdf_paths = pdf_paths
         self.output_dir = output_dir
@@ -51,6 +51,7 @@ class WorkerThread(QThread):
         self.block_idx = block_idx
         self.custom_text = custom_text
         self.enable_page_nums = enable_page_nums
+        self.page_num_pos = page_num_pos
 
     def run(self):
         FONTSIZE = 20
@@ -86,7 +87,7 @@ class WorkerThread(QThread):
                         punto_izq_bottom = fitz.Point(margen_lateral, y_posicion_bottom)
                         insertar_texto_orientado(pagina, punto_izq_bottom, self.bottom_left_text.strip(), FONTSIZE, color_rojo)
 
-                    # --- 3. LEYENDA SUPERIOR DERECHA Y NUMERACIÓN (OPCIONALES) ---
+                    # --- 3. LEYENDA SUPERIOR DERECHA ---
                     partes_derecha = []
 
                     if self.enable_right:
@@ -102,7 +103,8 @@ class WorkerThread(QThread):
                         elif self.right_mode == 'custom' and self.custom_text.strip():
                             partes_derecha.append(self.custom_text.strip())
 
-                    if self.enable_page_nums:
+                    # Si el usuario quiere el número de página Arriba a la Derecha, se adjunta al texto superior
+                    if self.enable_page_nums and self.page_num_pos == 'top_right':
                         partes_derecha.append(f"{num_pag + 1}/{total_paginas}")
 
                     texto_derecho = " ".join(partes_derecha).strip()
@@ -111,6 +113,20 @@ class WorkerThread(QThread):
                         x_derecho = ancho_pagina - margen_lateral - ancho_txt
                         punto_der = fitz.Point(x_derecho, y_posicion_top)
                         insertar_texto_orientado(pagina, punto_der, texto_derecho, FONTSIZE, color_rojo)
+
+                    # --- 4. NUMERACIÓN DE PÁGINAS (SI ES EN OTRA POSICIÓN) ---
+                    if self.enable_page_nums and self.page_num_pos != 'top_right':
+                        txt_num_pag = f"{num_pag + 1}/{total_paginas}"
+                        ancho_num_txt = ancho_texto_visual(txt_num_pag, "helv", FONTSIZE)
+
+                        if self.page_num_pos == 'bottom_right':
+                            x_pos = ancho_pagina - margen_lateral - ancho_num_txt
+                            punto_num = fitz.Point(x_pos, y_posicion_bottom)
+                        elif self.page_num_pos == 'bottom_center':
+                            x_pos = (ancho_pagina - ancho_num_txt) / 2.0
+                            punto_num = fitz.Point(x_pos, y_posicion_bottom)
+
+                        insertar_texto_orientado(pagina, punto_num, txt_num_pag, FONTSIZE, color_rojo)
 
                 # Guardar resultado
                 ruta_salida = os.path.join(self.output_dir, f"procesado_{nombre_archivo}")
@@ -133,7 +149,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Indexador de PDFs - Leyendas y Encabezados")
-        self.resize(750, 780)
+        self.resize(750, 820)
         self.pdf_files = []
         self.init_menu()
         self.init_ui()
@@ -268,12 +284,28 @@ class MainWindow(QMainWindow):
         layout_right_sub.addWidget(self.radio_custom)
         layout_right_sub.addLayout(layout_custom_opts)
 
+        # Configuración de Numeración de Páginas
         self.chk_page_nums = QCheckBox("Incluir Numeración de Páginas (ej. '1/10')")
         self.chk_page_nums.setChecked(True)
+        self.chk_page_nums.toggled.connect(self.toggle_page_num_options)
+
+        self.layout_page_pos = QHBoxLayout()
+        self.layout_page_pos.setContentsMargins(20, 0, 0, 0)
+        self.lbl_page_pos = QLabel("Ubicación de la numeración:")
+        self.combo_page_pos = QComboBox()
+        self.combo_page_pos.addItem("Arriba a la Derecha", "top_right")
+        self.combo_page_pos.addItem("Abajo a la Derecha", "bottom_right")
+        self.combo_page_pos.addItem("Abajo al Centro", "bottom_center")
+
+        self.layout_page_pos.addWidget(self.lbl_page_pos)
+        self.layout_page_pos.addWidget(self.combo_page_pos)
+        self.layout_page_pos.addStretch()
 
         layout_right.addWidget(self.chk_enable_right)
         layout_right.addWidget(self.widget_right_options)
         layout_right.addWidget(self.chk_page_nums)
+        layout_right.addLayout(self.layout_page_pos)
+
         group_right.setLayout(layout_right)
         main_layout.addWidget(group_right)
 
@@ -303,7 +335,7 @@ class MainWindow(QMainWindow):
                 QMenu::item:selected { background-color: #313244; }
                 QGroupBox { font-weight: bold; border: 1px solid #45475a; border-radius: 6px; margin-top: 10px; color: #89b4fa; padding-top: 12px; }
                 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-                QLineEdit, QSpinBox, QTextEdit, QListWidget { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 5px; }
+                QLineEdit, QSpinBox, QTextEdit, QListWidget, QComboBox { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 5px; }
                 QPushButton { background-color: #89b4fa; color: #11111b; font-weight: bold; border-radius: 4px; padding: 6px 12px; }
                 QPushButton:hover { background-color: #b4befe; }
                 QPushButton:disabled { background-color: #45475a; color: #7f849c; }
@@ -321,8 +353,8 @@ class MainWindow(QMainWindow):
                 QMenu::item:selected { background-color: #e9ecef; }
                 QGroupBox { font-weight: 600; border: 1px solid #dee2e6; border-radius: 8px; margin-top: 12px; color: #0d6efd; background-color: #ffffff; padding-top: 12px; }
                 QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
-                QLineEdit, QSpinBox, QTextEdit, QListWidget { background-color: #ffffff; color: #212529; border: 1px solid #ced4da; border-radius: 6px; padding: 5px; }
-                QLineEdit:focus, QSpinBox:focus { border: 1px solid #0d6efd; }
+                QLineEdit, QSpinBox, QTextEdit, QListWidget, QComboBox { background-color: #ffffff; color: #212529; border: 1px solid #ced4da; border-radius: 6px; padding: 5px; }
+                QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid #0d6efd; }
                 QPushButton { background-color: #0d6efd; color: #ffffff; font-weight: 600; border-radius: 6px; padding: 8px 14px; border: none; }
                 QPushButton:hover { background-color: #0b5ed7; }
                 QPushButton:disabled { background-color: #ced4da; color: #6c757d; }
@@ -346,6 +378,10 @@ class MainWindow(QMainWindow):
 
     def toggle_right_options(self, checked):
         self.widget_right_options.setEnabled(checked)
+
+    def toggle_page_num_options(self, checked):
+        self.lbl_page_pos.setEnabled(checked)
+        self.combo_page_pos.setEnabled(checked)
 
     def select_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Seleccionar PDFs", "", "Archivos PDF (*.pdf)")
@@ -373,6 +409,7 @@ class MainWindow(QMainWindow):
             return
 
         right_mode = 'delimiter' if self.radio_delim.isChecked() else 'custom'
+        page_num_pos = self.combo_page_pos.currentData()
 
         self.btn_process.setEnabled(False)
         self.progress_bar.setValue(0)
@@ -390,7 +427,8 @@ class MainWindow(QMainWindow):
             delimiter=self.input_delimiter.text(),
             block_idx=self.spin_block.value(),
             custom_text=self.input_custom_text.text(),
-            enable_page_nums=self.chk_page_nums.isChecked()
+            enable_page_nums=self.chk_page_nums.isChecked(),
+            page_num_pos=page_num_pos
         )
 
         self.worker.progress.connect(self.progress_bar.setValue)
