@@ -194,7 +194,7 @@ class WorkerThread(QThread):
             dir_destino = os.path.join(self.output_dir, rel_dir) if rel_dir else self.output_dir
             os.makedirs(dir_destino, exist_ok=True)
 
-            ruta_salida = os.path.join(dir_destino, f"procesado_{nombre_archivo}")
+            ruta_salida = os.path.join(dir_destino, f"{nombre_archivo}")
             pdf_document.save(ruta_salida)
             pdf_document.close()
 
